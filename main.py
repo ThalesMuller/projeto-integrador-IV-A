@@ -2,6 +2,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import csv
+from scipy.stats import norm
 
 matplotlib.use('TkAgg')
 
@@ -13,6 +14,9 @@ matplotlib.use('TkAgg')
 
 #*   Graficos radar/aranha: 
 #*       Goals/90, xG/90, xG Overperformance, % Shots on Target, Dribbles/90 do jogador com mais gols de cada time
+
+#*   Histograma:
+#*       Gls (gols totais do jogador) de todos os jogadores de todos os times com linha de distribuição normal
 '''
 
 HEADERS ={
@@ -40,7 +44,7 @@ HEADERS ={
    "Pens S": 21,
    "% Penalties Scored": 22
 }
- 
+
 def sanitize_row (row, debug=False):    
     _row = row.copy()
    
@@ -51,9 +55,11 @@ def sanitize_row (row, debug=False):
             else:
                 _row[index] = round(float(item), 2)
     
-    for i in range(len(_row) - 1):
-        if(row[i] != _row[i] and debug):
-            print(f"Changed {row[i]} to {_row[i]} type: {type(_row[i])}")
+    if(debug):
+        for i in range(len(_row) - 1):
+            if(row[i] != _row[i]):
+                print(f"Changed {row[i]} to {_row[i]} type: {type(_row[i])}")
+
     return _row
 
 def import_csv (file_path, debug=False):
@@ -69,6 +75,27 @@ def import_csv (file_path, debug=False):
                 data.append(sanitize_row(row, debug))
     
     return data
+
+def get_goals (teams_data):
+    goals = []
+
+    for team in teams_data:
+        goals += [row[HEADERS["Gls"]] for row in team]
+        
+    return goals
+
+def get_radar_values (data):
+    goals_list = [row[HEADERS["Goals/90"]] for row in data]
+    best_player_index = goals_list.index(max(goals_list))
+    best_player_stats = data[best_player_index]
+
+    goals = best_player_stats[HEADERS["Goals/90"]]
+    xg = best_player_stats[HEADERS["NP xG/90"]]
+    header_won = best_player_stats[HEADERS["% Headers Won"]]/100
+    shots_on_target = best_player_stats[HEADERS["% Shots on Target"]]/100
+    dribbles = best_player_stats[HEADERS["Dribbles/90"]]
+
+    return [goals, xg, header_won, shots_on_target, dribbles]
 
 def plot_scatter_goals (team_name, data):
     title = "Gols esperados em 90min X Gols em 90min - " + team_name
@@ -102,45 +129,24 @@ def plot_scatter(x_label, y_label, title, data):
     
     plt.show()
 
-def get_radar_values (data):
-    # get best player on team based on Gls
-    goals_list = [row[HEADERS["Goals/90"]] for row in data]
-    print(goals_list)
-    best_player_index = goals_list.index(max(goals_list))
-    print (best_player_index)
-    best_player_stats = data[best_player_index]
-    print (best_player_stats)
-
-    goals = best_player_stats[HEADERS["Goals/90"]]
-    xg = best_player_stats[HEADERS["NP xG/90"]]
-    header_won = best_player_stats[HEADERS["% Headers Won"]]/100
-    shots_on_target = best_player_stats[HEADERS["% Shots on Target"]]/100
-    dribbles = best_player_stats[HEADERS["Dribbles/90"]]
-
-    #print (f"Nome: {best_player_stats[HEADERS['Name']]} Goals: {goals}, NP xG/90: {xg}, xG Overperformance: {xg_overperformance}, Shots on Target: {shots_on_target}, Dribbles: {dribbles}")
-    return [goals, xg, header_won, shots_on_target, dribbles]
-
 def plot_radar (data):
     labels = ['Goals/90', 'NP xG/90', '% Headers Won', '% Shots on Target', 'Dribbles/90']
     num_vars = len(labels)
     
-    # Create a color palette
     colors = ['blue', 'red', 'green']
     team_names = ["Grêmio", "Internacional", "Juventude"]
 
-    # Create the radar chart for each dataset
     angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
-    angles += angles[:1]  # Close the circle for angles
+    angles += angles[:1]
 
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
 
     for i in range(len(data)):
         values = data[i]
-        values += values[:1]  # Close the circle for values
+        values += values[:1] 
         ax.fill(angles, values, color=colors[i], alpha=0.25)
         ax.plot(angles, values, color=colors[i], linewidth=2, label=team_names[i])
 
-    # Add labels and title
     ax.set_yticklabels([])
     ax.set_xticks(angles[:-1])
     ax.set_xticklabels(labels)
@@ -149,20 +155,49 @@ def plot_radar (data):
 
     plt.show()
 
+def plot_histogram (data):
+    plt.figure(figsize=(8, 6))
+    count, bins, ignored = plt.hist(data, bins=30, density=False, color='green', alpha=0.6, edgecolor='black')
+    
+    mu, std = norm.fit(data)
+    
+    bin_width = bins[1] - bins[0]
+    scale_factor = len(data) * bin_width
+    
+    xmin, xmax = int(np.floor(bins[0])), int(np.ceil(bins[-1]))  
+    x = np.arange(xmin, xmax + 1, 1) 
+    p = norm.pdf(x, mu, std) * scale_factor
+    
+    plt.plot(x, p, 'r', linewidth=2)
+    
+    plt.xticks(np.arange(xmin, xmax + 1, 1))
+    
+    title = "Historiograma de número de gols:\n média: %.2f  desvio padrão: %.2f" % (mu, std)
+    plt.title(title)
+    plt.xlabel('Quantidade de Gols')
+    plt.ylabel('Quantidade de Jogadores')
+    
+    plt.show()
 
 def __main__ ():
     teams = ["gremio", "inter", "juventude"]
     team_names = {"gremio": "Grêmio", "inter": "Internacional", "juventude": "Juventude"}
 
     radar_data = []
+    teams_data = []
     for team in teams:
-        data = import_csv(team)
         name = team_names[team]
+        
+        data = import_csv(team)
+        teams_data.append(data)
+        radar_data.append(get_radar_values(data))
 
         plot_scatter_goals(name, data)
         plot_scatter_headers(name, data)
-        radar_data.append(get_radar_values(data))
-
+    
+    goals = get_goals(teams_data)
+    plot_histogram(goals)
+    
     plot_radar(radar_data)
 
 if __name__ == "__main__":
